@@ -2,24 +2,27 @@
     Module to create a simple UI for CSU serial port communication.
 """
 
+from utils import resource_path
+from constants import NUM_THERMISTORS, NUM_NETWORKS
+from serial_communicator import SerialCommunicator
+from menu import CsuMenu
+from serial.tools.list_ports import comports
+import serial
+import ttkbootstrap as ttk
+import numpy as np
 from queue import Queue
 from threading import Thread
 from datetime import datetime
 from PIL import Image, ImageTk
 from tkinter import Toplevel, messagebox, Menu, Tk
-
-import ttkbootstrap as ttk
+import matplotlib.dates as mdates
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from datetime import datetime
 import tkinter as tk
-import serial
-
-from serial.tools.list_ports import comports
-
-from menu import CsuMenu
-from serial_communicator import SerialCommunicator
-
-from constants import NUM_THERMISTORS
-
-from utils import resource_path
+import random
+import matplotlib
+matplotlib.use('TkAgg')
 
 
 class SerialUI:
@@ -33,6 +36,12 @@ class SerialUI:
         self.root.title("Data Logger")
         self.serial_communicator = None  # SerialCommunicator object initialization
         self.ports = []  # List to hold available serial ports
+        self.solenoid_cutoff = tk.IntVar(value=10)
+        self.repetition_rate = tk.IntVar(value=10)
+        self.heater_activation = tk.IntVar(value=10)
+        self.cooling_enabled = tk.BooleanVar(value=True)
+        self.wifi_ssids = [tk.StringVar() for _ in range(NUM_NETWORKS)]
+        self.wifi_passwords = [tk.StringVar() for _ in range(NUM_NETWORKS)]
 
         CsuMenu(self)  # Create the menu bar
 
@@ -51,11 +60,11 @@ class SerialUI:
         # Refresh Button
         self.refresh_icon = Image.open(resource_path("refresh_icon.png"))
         self.refresh_icon = self.refresh_icon.resize(
-            (16, 16), Image.LANCZOS)  # Resize the icon as needed
+            (16, 16), Image.LANCZOS)  # type: ignore # Resize the icon as needed
         self.refresh_icon = ImageTk.PhotoImage(
             self.refresh_icon)  # Convert to PhotoImage
         self.refresh_button = ttk.Button(
-            self.serial_ports_container, image=self.refresh_icon, command=self.refresh_ports,)
+            self.serial_ports_container, image=self.refresh_icon, command=self.refresh_ports,)  # type: ignore
         self.refresh_button.grid(row=0, column=1, padx=5, sticky='w')
 
         self.selected_port = tk.StringVar()  # Variable to hold selected port
@@ -71,25 +80,6 @@ class SerialUI:
             )
             rb.grid(row=i+1, padx=5, pady=2, sticky='w')
 
-        self.header_split = ttk.Separator(
-            self.header_frame, orient='vertical')
-        self.header_split.grid(row=0, column=3, sticky='ns', padx=10)
-
-        self.cooling_enabled = tk.IntVar(value=0)
-
-        # Cooling Enable
-        self.cooling_enabled_frame = ttk.Frame(self.header_frame)
-        self.cooling_enabled_frame.grid(row=0, column=4)
-        self.cooling_enabled_button = ttk.Checkbutton(
-            self.cooling_enabled_frame, text="Enable Slits", variable=self.cooling_enabled, state="disabled",)
-
-        self.cooling_enabled_button.grid(row=0, column=0,
-                                         padx=5, pady=5, sticky='w')
-        self.enable_slits_button = ttk.Button(
-            self.cooling_enabled_frame, text="Send", state="disabled")
-        self.enable_slits_button.grid(
-            row=0, column=1, padx=5, pady=5, sticky='w')
-
         # Button Frame
         self.button_frame = ttk.Frame(self.root)
         self.button_frame.pack(pady=10)
@@ -104,19 +94,20 @@ class SerialUI:
             self.button_frame, text="Close Port", command=self.close_serial, state="disabled",)
         self.close_button.grid(row=0, column=1, padx=5)
 
-        # Data Logger Settings Frame
-        self.data_logger_settings_frame = ttk.Frame(self.root)
-        self.data_logger_settings_frame.pack(pady=10)
+        # Create a frame to hold both the thermistor data and the plot
+        self.data_plot_frame = ttk.Frame(self.root)
+        self.data_plot_frame.pack(pady=10)
 
-        #
-
-        # Thermistor Data Frame
-        self.thermistor_data_frame = ttk.Frame(self.root)
-        self.thermistor_data_frame.pack(pady=10)
+        # Create a sub-frame for thermistor data
+        self.thermistor_data_frame = ttk.Frame(self.data_plot_frame)
+        self.thermistor_data_frame.grid(
+            row=0, column=0, padx=10, pady=5, sticky='nw')
 
         self.live_thermistor_data = []
 
         self.create_live_thermistor_data()
+
+        self.create_live_matplotlib_data()
 
         # Received Data Display
         self.received_data_frame = ttk.Frame(self.root)
@@ -137,16 +128,96 @@ class SerialUI:
         self.root.mainloop()
 
     def create_live_thermistor_data(self):
+
         for i in range(NUM_THERMISTORS):
+            column = 1 if i % 2 else 0
+            row = i // 2
             thermistor_label = ttk.Label(self.thermistor_data_frame,
                                          text=f"T{i+1}:")
             thermistor_label.grid(
-                row=i*3, column=4, padx=10, pady=5, sticky='w')
+                row=row * 2, column=column, padx=10, pady=5, sticky='w')
             thermistor_entry = ttk.Entry(
                 self.thermistor_data_frame, width=20, state="disabled")
-            thermistor_entry.grid(row=i*3+1, column=4,
+            thermistor_entry.grid(row=row * 2 + 1, column=column,
                                   padx=10, pady=5, sticky='w')
+            thermistor_entry.config(state="disabled")
             self.live_thermistor_data.append(thermistor_entry)
+
+    def create_live_matplotlib_data(self):
+        self.plot_frame = ttk.Frame(self.data_plot_frame)
+        # Place it next to thermistor data
+        self.plot_frame.grid(row=0, column=1, padx=10, pady=5, sticky='ne')
+
+        self.fig = Figure(figsize=(8, 6), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+
+        # X-axis will represent time, initialize with an empty list
+        self.time_data = []
+        # Y-axis will represent temperature, initialize with 16 lists for 16 thermistors
+        self.temp_data = [[] for _ in range(16)]
+
+        self.lines = []  # To store the lines for each thermistor
+
+        for i in range(16):
+            line, = self.ax.plot([], [], label=f'T{i+1}')
+            self.lines.append(line)
+
+        self.ax.set_title('Temperature Data')
+        self.ax.set_xlabel('Time')
+        self.ax.set_ylabel('Temperature (K)')
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.ax.legend()
+
+    def update_plot(self, timestamp: str, temps):
+        try:
+            # Convert timestamp string to datetime object
+            time = datetime.strptime(timestamp.strip(), "%H:%M:%S")
+
+            # Assuming 'temps' is a list of 16 temperature values
+
+            # Check if 'temps' contains valid temperature data
+            if len(temps) == 16:
+                # Append timestamp to time_data
+                self.time_data.append(time)
+
+                # Iterate over temperature data for each thermistor
+                for i, temp in enumerate(temps):
+                    # Append temperature data to temp_data for each thermistor
+                    self.temp_data[i].append(float(temp))
+
+                self.ax.clear()
+                # Update each line
+                for i, line in enumerate(self.lines):
+                    # Set data for each line using time_data and temp_data for the corresponding thermistor
+                    # line.set_data(self.time_data, self.temp_data[i])
+                    self.ax.plot(mdates.date2num(self.time_data),
+                                 self.temp_data[i], label=f'T{i+1}')
+
+                # Adjust y-axis limits
+                min_temp = min([min(temp) for temp in self.temp_data])
+                max_temp = max([max(temp) for temp in self.temp_data])
+                # Adjust y-axis limits to accommodate the temperature range
+                self.ax.set_ylim(min_temp - 1, max_temp + 1)
+
+                self.ax.xaxis.set_major_formatter(
+                    mdates.DateFormatter('%H:%M:%S'))
+                self.ax.set_title('Temperature Data')
+                self.ax.set_xlabel('Time')
+                self.ax.set_ylabel('Temperature (K)')
+                self.ax.legend()
+
+                # Redraw the canvas to reflect the updated plot
+                self.canvas.draw()
+            else:
+                # If 'temps' does not contain valid temperature data, print a message
+                print("Invalid temperature data received.")
+
+        except Exception as e:
+            # Handle any exceptions that occur during the plotting process
+            print(f"Error updating plot: {e}")
 
     def refresh_ports(self):
         """
@@ -209,7 +280,6 @@ class SerialUI:
                 self.read_thread = Thread(target=self.read_serial_thread)
                 self.read_thread.daemon = True
                 self.read_thread.start()
-                self.cooling_enabled_button.config(state="normal")
 
             else:
                 print(f"Failed to open serial port {port}.")
@@ -223,7 +293,6 @@ class SerialUI:
             self.received_data_text.delete(1.0, tk.END)
             # Set focus to the text widget
             self.received_data_text.focus_set()
-            self.cooling_enabled_button.config(state="disabled")
             # Update the scrollbar
             self.scrollbar.set(0.0, 1.0)
 
@@ -250,12 +319,32 @@ class SerialUI:
                     if received_data.startswith("Live:"):
                         data = received_data.split(":")[1].split(";")
                         live_data_timestamp = data[0]
+                        live_data_timestamp = live_data_timestamp.replace(
+                            ".", ":")
                         live_data = data[1].split(",")
+                        if len(live_data) == 16:  # Ensure there are 16 temperature values
+                            # Update the plot
+                            self.update_plot(live_data_timestamp, live_data)
                         for i, entry in enumerate(self.live_thermistor_data):
                             entry.config(state="normal")
                             entry.delete(0, tk.END)
                             entry.insert(0, live_data[i])
                             entry.config(state="disabled")
+                    elif received_data.startswith("Wifi Credentials:"):
+                        data = received_data.split(":")[1].split(";")
+                        for i, entry in enumerate(data):
+                            ssid, password = entry.split(",")
+                            self.wifi_ssids[i].set(ssid)
+                            self.wifi_passwords[i].set(password)
+                    elif received_data.startswith("Cooling Enabled:"):
+                        data = received_data.split(":")[1]
+                        self.cooling_enabled.set(data == "1")
+                    elif received_data.startswith("Solenoid Cutoff Temperature:"):
+                        data = received_data.split(":")[1]
+                        self.solenoid_cutoff.set(int(data))
+                    elif received_data.startswith("Heater Activation Temperature:"):
+                        data = received_data.split(":")[1]
+                        self.heater_activation.set(int(data))
                     else:
                         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Get current timestamp
                         # Check if the user has manually scrolled
