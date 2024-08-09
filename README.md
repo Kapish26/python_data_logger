@@ -1,6 +1,6 @@
 # Data Logger GUI
 
-The Data Logger GUI project connects with the hardware (an ESP32 module) using serial communication. It allows users to configure various temperature settings and monitor real-time thermistor data, including a live graph of temperature variations.
+The Data Logger GUI project connects with the hardware (an ESP32 module) using serial communication and currently supports data from 16 thermistors. This application allows users to monitor and configure temperature settings via a graphical user interface built with Python.
 
 
 ## Table of Contents
@@ -13,11 +13,11 @@ The Data Logger GUI project connects with the hardware (an ESP32 module) using s
 
 ## Features
 
-- **Heater Activation Temperature**: Set the temperature at which the heater will activate.
-- **Solenoid Cutoff Temperature**: Set the temperature at which the solenoid will cut off.
+- **Temperature Control**: Set heater activation temperatures and solenoid cutoff temperatures.
 - **Cooling Settings**: Enable or disable cooling settings.
-- **Live Thermistor Data**: View real-time data from thermistors.
-- **Real-Time Graph**: Monitor temperature variations over time on a live graph.
+- **Live Data Display**: Shows real-time thermistor data.
+- **Real-Time Graph**: Displays a real-time graph of temperature variations over time.
+- **WiFi Credentials Management**: Stores up to 8 WiFi SSIDs and passwords.
 
 ## Installation
 
@@ -56,12 +56,16 @@ The Data Logger GUI project connects with the hardware (an ESP32 module) using s
     - Locate the `main.exe` file on your desktop and double-click to open the Data Logger app.
 
 2. **Connect Serial Ports**:
-    - Ensure that you establish a connection to the relevant serial ports. This might involve connecting any hardware components to your computer or configuring virtual serial ports if applicable.
+    - Before interacting with the app's features, ensure that you establish a connection to the relevant serial ports. This might involve connecting any hardware components to your computer or configuring virtual serial ports if applicable.
 
 3. **Live Data Graph**:
-    - The data is plotted from the time the serial port is connected. You can show or hide the thermistor lines in the graph as needed.
+    - The data is plotted from the time the serial port is connected. You can show or hide the thermistors' lines in the graph.
 
-By following these steps, you can effectively utilize the Data Logger app to configure and monitor your temperature settings.
+4. **Edit Data Logger Settings**:
+    - To change heater activation temperatures, solenoid cutoff temperatures, and enable or disable cooling settings, go to the menu bar, select "Edit," and then choose "Edit Data Logger Settings."
+
+5. **Edit WiFi Credentials**:
+    - To store or edit WiFi SSIDs and passwords, go to the menu bar, select "Edit," and then choose "Edit WiFi Credentials." You can store up to 8 WiFi networks.
 
 ## Creating an Executable
 
