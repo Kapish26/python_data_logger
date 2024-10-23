@@ -37,7 +37,7 @@ class SerialUI:
         self.serial_communicator = None  # SerialCommunicator object initialization
         self.ports = []  # List to hold available serial ports
         self.solenoid_cutoff = tk.IntVar(value=10)
-        self.repetition_rate = tk.IntVar(value=10)
+        self.repetition_rate = tk.DoubleVar(value=0.1)
         self.heater_activation = tk.IntVar(value=10)
         self.cooling_enabled = tk.BooleanVar(value=True)
         self.wifi_ssids = [tk.StringVar() for _ in range(NUM_NETWORKS)]
@@ -109,6 +109,8 @@ class SerialUI:
 
         self.create_live_matplotlib_data()
 
+        self.display_thermistor_checkboxes()
+
         # Received Data Display
         self.received_data_frame = ttk.Frame(self.root)
         self.received_data_frame.pack(pady=10)
@@ -143,6 +145,18 @@ class SerialUI:
             thermistor_entry.config(state="disabled")
             self.live_thermistor_data.append(thermistor_entry)
 
+    def display_thermistor_checkboxes(self):
+        self.checkbox_frame = ttk.Frame(self.data_plot_frame)
+        self.checkbox_frame.grid(row=0, column=1, padx=10, pady=5, sticky='nw')
+
+        self.thermistor_vars = []
+        for i in range(16):
+            var = tk.BooleanVar(value=True)
+            checkbox = ttk.Checkbutton(
+                self.checkbox_frame, text=f'T{i+1}', variable=var, command=self.update_plot,)
+            checkbox.grid(row=0, column=i, padx=5, pady=5, sticky='w')
+            self.thermistor_vars.append(var)
+
     def create_live_matplotlib_data(self):
         self.plot_frame = ttk.Frame(self.data_plot_frame)
         # Place it next to thermistor data
@@ -163,54 +177,40 @@ class SerialUI:
             self.lines.append(line)
 
         self.ax.set_title('Temperature Data')
-        self.ax.set_xlabel('Time')
+        self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('Temperature (K)')
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
         self.ax.legend()
+        self.start_time = None
 
-    def update_plot(self, timestamp: str, temps):
+    def update_data(self, timestamp: str, temps):
         try:
-            # Convert timestamp string to datetime object
-            time = datetime.strptime(timestamp.strip(), "%H:%M:%S")
+            current_time = datetime.strptime(f"{datetime.today().strftime(
+                '%Y-%m-%d')} {timestamp.strip()}", "%Y-%m-%d %H:%M:%S")
 
-            # Assuming 'temps' is a list of 16 temperature values
+            if self.start_time is None:
+                self.start_time = current_time
+                self.temp_time = current_time
 
             # Check if 'temps' contains valid temperature data
-            if len(temps) == 16:
+            if len(temps) == 16 and ((current_time - self.temp_time).total_seconds() >= self.repetition_rate.get() * 60):
+                elapsed_time = current_time - self.start_time
+                self.temp_time = current_time
+
                 # Append timestamp to time_data
-                self.time_data.append(time)
+                self.time_data.append(elapsed_time.total_seconds())
 
                 # Iterate over temperature data for each thermistor
                 for i, temp in enumerate(temps):
                     # Append temperature data to temp_data for each thermistor
                     self.temp_data[i].append(float(temp))
 
-                self.ax.clear()
-                # Update each line
-                for i, line in enumerate(self.lines):
-                    # Set data for each line using time_data and temp_data for the corresponding thermistor
-                    # line.set_data(self.time_data, self.temp_data[i])
-                    self.ax.plot(mdates.date2num(self.time_data),
-                                 self.temp_data[i], label=f'T{i+1}')
+                # Update the plot
+                self.update_plot()
 
-                # Adjust y-axis limits
-                min_temp = min([min(temp) for temp in self.temp_data])
-                max_temp = max([max(temp) for temp in self.temp_data])
-                # Adjust y-axis limits to accommodate the temperature range
-                self.ax.set_ylim(min_temp - 1, max_temp + 1)
-
-                self.ax.xaxis.set_major_formatter(
-                    mdates.DateFormatter('%H:%M:%S'))
-                self.ax.set_title('Temperature Data')
-                self.ax.set_xlabel('Time')
-                self.ax.set_ylabel('Temperature (K)')
-                self.ax.legend()
-
-                # Redraw the canvas to reflect the updated plot
-                self.canvas.draw()
             else:
                 # If 'temps' does not contain valid temperature data, print a message
                 print("Invalid temperature data received.")
@@ -218,6 +218,28 @@ class SerialUI:
         except Exception as e:
             # Handle any exceptions that occur during the plotting process
             print(f"Error updating plot: {e}")
+
+    def update_plot(self,):
+        self.ax.clear()
+        # Update each line
+        for i, line in enumerate(self.lines):
+            if self.thermistor_vars[i].get():
+                self.ax.plot(self.time_data,
+                             self.temp_data[i], label=f'T{i+1}')
+
+        # Adjust y-axis limits
+        min_temp = min([min(temp) for temp in self.temp_data])
+        max_temp = max([max(temp) for temp in self.temp_data])
+        # Adjust y-axis limits to accommodate the temperature range
+        self.ax.set_ylim(min_temp - 1, max_temp + 1)
+
+        self.ax.set_title('Temperature Data')
+        self.ax.set_xlabel('Time (s)')
+        self.ax.set_ylabel('Temperature (K)')
+        self.ax.legend()
+
+        # Redraw the canvas to reflect the updated plot
+        self.canvas.draw()
 
     def refresh_ports(self):
         """
@@ -324,7 +346,7 @@ class SerialUI:
                         live_data = data[1].split(",")
                         if len(live_data) == 16:  # Ensure there are 16 temperature values
                             # Update the plot
-                            self.update_plot(live_data_timestamp, live_data)
+                            self.update_data(live_data_timestamp, live_data)
                         for i, entry in enumerate(self.live_thermistor_data):
                             entry.config(state="normal")
                             entry.delete(0, tk.END)
