@@ -30,8 +30,8 @@ The Data Logger GUI project connects with the hardware (an ESP32 module) using s
 
 1. **Clone the repository**:
     ```bash
-    git clone <repository-url>
-    cd <repository-directory>
+    git clone https://github.com/Kapish26/python_data_logger
+    cd python_data_logger
     ```
 
 2. **Set up a virtual environment (optional but recommended)**:
