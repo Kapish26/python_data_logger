@@ -73,12 +73,26 @@ class DataLoggerSettings:
         self.repetition_rate_frame.grid(row=1, column=2, padx=4, sticky='w')
 
         self.repetition_rate_label = ttk.Label(
-            self.repetition_rate_frame, text="Repetition Rate (s):")
+            self.repetition_rate_frame, text="Refresh Rate (s):")
         self.repetition_rate_label.grid(
             row=0, column=0, padx=5, pady=5, sticky='w')
         self.repetition_rate_entry = ttk.Entry(
-            self.repetition_rate_frame, width=10, textvariable=self.parent.repetition_rate)
+            self.repetition_rate_frame, width=10, textvariable=self.parent.refresh_rate)
         self.repetition_rate_entry.grid(
+            row=0, column=1, padx=5, pady=5, sticky='w')
+
+        # Dumping Rate Frame
+        self.dumping_rate_frame = ttk.Frame(self.data_logger_settings_frame)
+        self.dumping_rate_frame.grid(
+            row=2, column=0, padx=4, pady=4, sticky='w')
+
+        self.dumping_rate_label = ttk.Label(
+            self.dumping_rate_frame, text="Dumping Rate (s):")
+        self.dumping_rate_label.grid(
+            row=0, column=0, padx=5, pady=5, sticky='w')
+        self.dumping_rate_entry = ttk.Entry(
+            self.dumping_rate_frame, width=10, textvariable=self.parent.dumping_rate)
+        self.dumping_rate_entry.grid(
             row=0, column=1, padx=5, pady=5, sticky='w')
 
     def send_heater_activation(self):
@@ -87,8 +101,7 @@ class DataLoggerSettings:
                 "Error", "Serial Communicator is not connected")
             return
         else:
-            data = f"Heater Activation Temperature:{
-                self.parent.heater_activation.get()}"
+            data = f"Heater Activation Temperature:{self.parent.heater_activation.get()}"
             self.parent.serial_communicator.write_to_serial(data)
 
     def send_solenoid_cutoff(self):
@@ -97,8 +110,7 @@ class DataLoggerSettings:
                 "Error", "Serial Communicator is not connected")
             return
         else:
-            data = f"Solenoid Cutoff Temperature:{
-                self.parent.solenoid_cutoff.get()}"
+            data = f"Solenoid Cutoff Temperature: {self.parent.solenoid_cutoff.get()}"
             self.parent.serial_communicator.write_to_serial(data)
 
     def send_cooling_enabled(self):
@@ -107,6 +119,5 @@ class DataLoggerSettings:
                 "Error", "Serial Communicator is not connected")
             return
         else:
-            data = f"Cooling Enabled:{
-                1 if self.parent.cooling_enabled.get() else 0}"
+            data = f"Cooling Enabled: {1 if self.parent.cooling_enabled.get() else 0}"
             self.parent.serial_communicator.write_to_serial(data)
