@@ -37,11 +37,16 @@ class SerialUI:
         self.serial_communicator = None  # SerialCommunicator object initialization
         self.ports = []  # List to hold available serial ports
         self.solenoid_cutoff = tk.IntVar(value=10)
-        self.repetition_rate = tk.DoubleVar(value=0.1)
+        self.refresh_rate = tk.DoubleVar(
+            value=0.1)  # UI refresh rate in seconds
+        # Data dumping rate in seconds
+        self.dumping_rate = tk.DoubleVar(value=1.0)
         self.heater_activation = tk.IntVar(value=10)
         self.cooling_enabled = tk.BooleanVar(value=True)
         self.wifi_ssids = [tk.StringVar() for _ in range(NUM_NETWORKS)]
         self.wifi_passwords = [tk.StringVar() for _ in range(NUM_NETWORKS)]
+        self.data_log_file = None  # File path for data logging
+        self.last_dump_time = None  # Track last time data was dumped
 
         CsuMenu(self)  # Create the menu bar
 
@@ -188,28 +193,50 @@ class SerialUI:
 
     def update_data(self, timestamp: str, temps):
         try:
-            current_time = datetime.strptime(f"{datetime.today().strftime(
-                '%Y-%m-%d')} {timestamp.strip()}", "%Y-%m-%d %H:%M:%S")
+            # Parse time from timestamp (HH:MM:SS format)
+            time_obj = datetime.strptime(timestamp.strip(), "%H:%M:%S").time()
+
+            # Combine with current date to create full datetime
+            current_date = datetime.now().date()
+            current_time = datetime.combine(current_date, time_obj)
+
+            # Handle day rollover: if current_time is significantly earlier than last recorded time,
+            # assume we've crossed midnight and add a day
+            if self.start_time is not None:
+                # If the new time is more than 12 hours earlier than the last time, we likely crossed midnight
+                time_diff = (current_time - self.temp_time).total_seconds()
+                if time_diff < -43200:  # -12 hours in seconds
+                    # Add one day to current_time
+                    from datetime import timedelta
+                    current_time = current_time + timedelta(days=1)
 
             if self.start_time is None:
                 self.start_time = current_time
                 self.temp_time = current_time
+                self.last_dump_time = current_time
 
             # Check if 'temps' contains valid temperature data
-            if len(temps) == 16 and ((current_time - self.temp_time).total_seconds() >= self.repetition_rate.get() * 60):
-                elapsed_time = current_time - self.start_time
-                self.temp_time = current_time
+            if len(temps) == 16:
+                # Check if it's time to update UI based on refresh_rate
+                if (current_time - self.temp_time).total_seconds() >= self.refresh_rate.get():
+                    elapsed_time = current_time - self.start_time
+                    self.temp_time = current_time
 
-                # Append timestamp to time_data
-                self.time_data.append(elapsed_time.total_seconds())
+                    # Append timestamp to time_data
+                    self.time_data.append(elapsed_time.total_seconds())
 
-                # Iterate over temperature data for each thermistor
-                for i, temp in enumerate(temps):
-                    # Append temperature data to temp_data for each thermistor
-                    self.temp_data[i].append(float(temp))
+                    # Iterate over temperature data for each thermistor
+                    for i, temp in enumerate(temps):
+                        # Append temperature data to temp_data for each thermistor
+                        self.temp_data[i].append(float(temp))
 
-                # Update the plot
-                self.update_plot()
+                    # Update the plot
+                    self.update_plot()
+
+                # Check if it's time to dump data based on dumping_rate
+                if self.last_dump_time is not None and (current_time - self.last_dump_time).total_seconds() >= self.dumping_rate.get():
+                    self.dump_data_to_file(timestamp, temps)
+                    self.last_dump_time = current_time
 
             else:
                 # If 'temps' does not contain valid temperature data, print a message
@@ -240,6 +267,19 @@ class SerialUI:
 
         # Redraw the canvas to reflect the updated plot
         self.canvas.draw()
+
+    def dump_data_to_file(self, timestamp: str, temps):
+        """
+            Dump temperature data to the data log file.
+        """
+        if self.data_log_file:
+            try:
+                with open(self.data_log_file, 'a') as file:
+                    # Format: [timestamp] T1,T2,T3,...,T16
+                    temp_string = ','.join(temps)
+                    file.write(f"[{timestamp}] {temp_string}\n")
+            except Exception as e:
+                print(f"Error writing to data log file: {e}")
 
     def refresh_ports(self):
         """
@@ -296,6 +336,16 @@ class SerialUI:
             self.serial_communicator = SerialCommunicator(port)
             if self.serial_communicator.open_serial_port():
                 print(f"Serial port {port} opened successfully.")
+
+                # Create data log file with timestamp
+                timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+                self.data_log_file = f'csu_data_{timestamp}_logs.txt'
+                print(f"Data will be logged to: {self.data_log_file}")
+
+                # Reset timing variables
+                self.start_time = None
+                self.last_dump_time = None
+
                 self.open_button.config(state="disabled")
                 self.close_button.config(state="normal")
                 # Start reading thread
@@ -321,6 +371,11 @@ class SerialUI:
             self.open_button.config(state="normal")
             self.close_button.config(state="disabled")
             self.serial_communicator = None
+
+            # Close data log file
+            self.data_log_file = None
+            self.start_time = None
+            self.last_dump_time = None
 
             for window in self.root.winfo_children():
                 if window.winfo_class() == 'Toplevel':
